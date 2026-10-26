@@ -1,0 +1,81 @@
+{
+	email {$ACME_EMAIL}
+	order rate_limit before reverse_proxy
+}
+
+(rpc) {
+	lb_policy first
+	lb_try_duration 5s
+	lb_try_interval 250ms
+	fail_duration 30s
+	max_fails 1
+	unhealthy_status 5xx 429
+	unhealthy_latency 8s
+	health_uri /
+	health_method POST
+	health_request_body `{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}`
+	health_headers {
+		Content-Type application/json
+	}
+	health_status 2xx
+	health_body "result"
+	health_interval 15s
+	health_timeout 5s
+	header_up Host {http.reverse_proxy.upstream.host}
+	transport http {
+		dial_timeout 3s
+		response_header_timeout 15s
+	}
+}
+
+:8101 {
+	reverse_proxy {$RPC_GNOSIS} {
+		import rpc
+	}
+}
+
+:8102 {
+	reverse_proxy {$RPC_ARC} {
+		import rpc
+	}
+}
+
+:8103 {
+	reverse_proxy {$RPC_BASE} {
+		import rpc
+	}
+}
+
+(bundler) {
+	encode gzip
+	request_body {
+		max_size 256KB
+	}
+	header -Server
+	@internal path /metrics /metrics/* /health /health/*
+	respond @internal 404
+	@notjsonrpc not method POST OPTIONS
+	respond @notjsonrpc 405
+	rate_limit {
+		zone bundler_{args[0]} {
+			key {client_ip}
+			events {$RATE_LIMIT}
+			window 1m
+		}
+	}
+}
+
+bundler-gnosis.{$DOMAIN} {
+	import bundler gnosis
+	reverse_proxy alto-gnosis:3000
+}
+
+bundler-arc.{$DOMAIN} {
+	import bundler arc
+	reverse_proxy alto-arc:3000
+}
+
+bundler-base.{$DOMAIN} {
+	import bundler base
+	reverse_proxy alto-base:3000
+}

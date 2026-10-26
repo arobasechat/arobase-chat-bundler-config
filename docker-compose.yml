@@ -1,0 +1,74 @@
+name: arobase
+
+x-alto: &alto
+  build: ./alto
+  restart: unless-stopped
+  expose: ["3000"]
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+x-scripts: &scripts
+  build:
+    context: ${RELAY_CONTEXT:?RELAY_CONTEXT manquant dans .env (dépôt du relais épinglé sur un commit ou un tag)}
+  restart: unless-stopped
+  environment:
+    REGISTRY: ${REGISTRY:?REGISTRY manquant dans .env}
+    REGISTRY_RPC: ${REGISTRY_RPC:?REGISTRY_RPC manquant dans .env}
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  caddy:
+    build: ./caddy
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:-arobase.chat}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL manquant dans .env}
+      RATE_LIMIT: ${RATE_LIMIT:-120}
+      RPC_GNOSIS: ${RPC_GNOSIS:-https://gnosis-rpc.arobase.chat https://rpc.gnosischain.com https://gnosis-rpc.publicnode.com}
+      RPC_ARC: ${RPC_ARC:-https://arc-rpc.arobase.chat https://rpc.mainnet.arc.io https://arc-rpc.publicnode.com}
+      RPC_BASE: ${RPC_BASE:-https://base-rpc.arobase.chat https://mainnet.base.org https://base-rpc.publicnode.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  alto-gnosis:
+    <<: *alto
+    env_file: [alto/common.env, alto/gnosis.env]
+    depends_on: [caddy]
+
+  alto-arc:
+    <<: *alto
+    env_file: [alto/common.env, alto/arc.env]
+    depends_on: [caddy]
+
+  alto-base:
+    <<: *alto
+    env_file: [alto/common.env, alto/base.env]
+    depends_on: [caddy]
+
+  relay:
+    <<: *scripts
+    volumes:
+      - ./relay-data:/app/data
+    command: ["pnpm", "relay", "run", "--network", "mainnet"]
+
+  monitor:
+    <<: *scripts
+    environment:
+      REGISTRY: ${REGISTRY}
+      REGISTRY_RPC: ${REGISTRY_RPC}
+      MONITOR_WEBHOOK: ${MONITOR_WEBHOOK:-}
+      MONITOR_BALANCES: ${MONITOR_BALANCES:-}
+      MONITOR_MIN_DEPOSITS: ${MONITOR_MIN_DEPOSITS:-100:0.5,5042:1,8453:0.003}
+    volumes:
+      - ./relay-data:/app/data:ro
+    command: ["pnpm", "monitor", "--network", "mainnet", "--watch", "--interval", "600"]
+
+volumes:
+  caddy-data:
+  caddy-config:

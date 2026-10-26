@@ -1,0 +1,9 @@
+# Secrets: only the examples and the shared non-secret config are versioned
+.env
+alto/*.env
+!alto/common.env
+
+# Relay keys and state
+relay-data/
+
+.DS_Store
